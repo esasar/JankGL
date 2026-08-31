@@ -32,12 +32,14 @@ public class Main {
         // place some instances
         var cube = Mesh.cube(.5);
         var arrow = Mesh.arrow(.5);
-        var scene = Scene.of(List.of(new Instance(arrow, Vec3.ORIGO, 0, 0, 0, Color.GREEN.getValue()),
-                                     new Instance(arrow, Vec3.ORIGO, 0, 0, Math.PI / 2, Color.RED.getValue()),
-                                     new Instance(arrow, Vec3.ORIGO, 0, Math.PI / 2, 0, Color.BLUE.getValue()),
-                                     new Instance(cube, Vec3.of(0, 0, 2), 0, 0, 0, Color.RED.getValue()),
-                                     new Instance(cube, Vec3.of(1.2, 0, 3), 0.6, 0, 0, Color.GREEN.getValue()),
-                                     new Instance(Mesh.plane(10, 10, 10), Vec3.of(0, -1, 0), 0, Math.PI / 2, 0, Color.GREEN.getValue())));
+        var scene = Scene.of(List.of(new Instance(Mesh.filledPlane(10, 10), Vec3.ORIGO.translateY(-1), 0, Math.PI / 2, 0, Color.GREEN.getValue()),
+                                     //new Instance(arrow, Vec3.ORIGO, 0, 0, 0, Color.GREEN.getValue()),
+                                     //new Instance(arrow, Vec3.ORIGO, 0, 0, Math.PI / 2, Color.RED.getValue()),
+                                     //new Instance(arrow, Vec3.ORIGO, 0, Math.PI / 2, 0, Color.BLUE.getValue()),
+                                     new Instance(cube, Vec3.of(0, 0, 2), 0, 0, 0, Color.RED.getValue())
+                                     //new Instance(cube, Vec3.of(1.2, 0, 3), 0.6, 0, 0, Color.GREEN.getValue()),
+                                     //new Instance(Mesh.plane(10, 10, 10), Vec3.of(0, -1, 0), 0, Math.PI / 2, 0, Color.GREEN.getValue())
+        ));
 
         // TODO: effectively final
         Camera[] camera = { new Camera(Vec3.of(0, 0, 0), 0, 0) };

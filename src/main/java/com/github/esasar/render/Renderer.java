@@ -5,6 +5,9 @@ import com.github.esasar.math.Vec3;
 import com.github.esasar.scene.Instance;
 import com.github.esasar.scene.Scene;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public final class Renderer {
     /** Threshold for clip lines drawn by {@link #line}. */
     private static final double NEAR = 0.05;
@@ -38,6 +41,11 @@ public final class Renderer {
             view[i] = camera.toView(instance.toWorld(local.get(i)));
         }
 
+        // fill faces
+        for (var f : instance.mesh().faces()) {
+            fillFace(view[f.a()], view[f.b()], view[f.c()], instance.color());
+        }
+
         // draw lines between edges
         for (var e : instance.mesh().edges()) {
             var segMaybe = Clip.near(view[e.a()], view[e.b()], NEAR);
@@ -48,6 +56,66 @@ public final class Renderer {
 
             line(sx(pa), sy(pa), sx(pb), sy(pb), instance.color());
         }
+    }
+
+    /** Clip a triangle against the near plane and rasterize the resulting polygon. */
+    private void fillFace(Vec3 a, Vec3 b, Vec3 c, int color) {
+        var poly = clipNear(List.of(a, b, c));
+        if (poly.size() < 3) return;
+
+        var p0 = project(poly.getFirst());
+        for (var i = 1; i < poly.size() - 1; i++) {
+            var p1 = project(poly.get(i));
+            var p2 = project(poly.get(i + 1));
+            triangle(sx(p0), sy(p0), sx(p1), sy(p1), sx(p2), sy(p2), color);
+        }
+    }
+
+    /** <a href="https://en.wikipedia.org/wiki/Sutherland%E2%80%93Hodgman_algorithm">Sutherland-Hodgman</a>. */
+    private List<Vec3> clipNear(List<Vec3> poly) {
+        var out = new ArrayList<Vec3>();
+        for (var i = 0; i < poly.size(); i++) {
+            var cur = poly.get(i);
+            var prev = poly.get((i - 1 + poly.size()) % poly.size());
+            var curIn = cur.z() >= NEAR;
+            var prevIn = prev.z() >= NEAR;
+
+            if (curIn != prevIn) {
+                var t = (NEAR - prev.z()) / (cur.z() - prev.z());
+                out.add(prev.plus(cur.minus(prev).scale(t)));
+            }
+            if (curIn) out.add(cur);
+        }
+        return out;
+    }
+
+    /** Fills a screen-space triangle using edge functions. */
+    private void triangle(int x0, int y0, int x1, int y1, int x2, int y2, int color) {
+        // find the smallest rectangle that fits the triangle
+        var minX = Math.max(0, Math.min(x0, Math.min(x1, x2)));
+        var maxX = Math.min(getFb().getWidth() - 1, Math.max(x0, Math.max(x1, x2)));
+        var minY = Math.max(0, Math.min(y0, Math.min(y1, y2)));
+        var maxY = Math.min(getFb().getHeight() - 1, Math.max(y0, Math.max(y1, y2)));
+
+        // walk through the rectangle
+        for (var y = minY; y <= maxY; y++) {
+            for (var x = minX; x <= maxX; x++) {
+                // cross-products
+                var w0 = edge(x1, y1, x2, y2, x, y);
+                var w1 = edge(x2, y2, x0, y0, x, y);
+                var w2 = edge(x0, y0, x1, y1, x, y);
+
+                // when cross-products signs match, the pixel is inside the triangle
+                if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+                    getFb().set(x, y, color);
+                }
+            }
+        }
+    }
+
+    /** Cross product. TODO: maybe instead use objects or something */
+    private int edge(int ax, int ay, int bx, int by, int cx, int cy) {
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     }
 
     /** Projects a world point to view coordinates. */

@@ -13,14 +13,20 @@ import java.util.List;
  * @param edges
  *              edges of the mesh.
  */
-public record Mesh(List<Vec3> vertices, List<Edge> edges) {
+public record Mesh(List<Vec3> vertices, List<Edge> edges, List<Face> faces) {
 
     /** Edge of a mesh. Edge goes from vertex a to vertex b. */
     public record Edge(int a, int b) {
         public static Edge of(int a, int b) { return new Edge(a, b); }
     }
 
-    public static Mesh of(List<Vec3> vertices, List<Edge> edges) { return new Mesh(vertices, edges); }
+    /** Face of a mesh. */
+    public record Face(int a, int b, int c) {
+        public static Face of(int a, int b, int c) { return new Face(a, b, c); }
+    }
+
+    public static Mesh of(List<Vec3> vertices, List<Edge> edges, List<Face> faces) { return new Mesh(vertices, edges, faces); }
+    public static Mesh of(List<Vec3> vertices, List<Edge> edges) { return of(vertices, edges, List.of()); }
 
     /** Return a cube mesh that has edge length l. */
     public static Mesh cube(double l) {
@@ -55,6 +61,13 @@ public record Mesh(List<Vec3> vertices, List<Edge> edges) {
         return Mesh.of(vs, es);
     }
 
+    public static Mesh filledPlane(double w, double h) {
+        var vs = List.of(Vec3.of(-h / 2, -w / 2, 0), Vec3.of(-h / 2, w / 2, 0),
+                         Vec3.of( h / 2, w / 2, 0), Vec3.of(h / 2, - w / 2, 0));
+        var fs = List.of(Face.of(0, 1, 2), Face.of(0, 2, 3));
+        return Mesh.of(vs, List.of(), fs);
+    }
+
     public static Mesh arrow(double  l) {
         var a = 0.01;
         var vs = List.of(Vec3.of(0, 0, 0), Vec3.of(0, l, 0),
@@ -62,5 +75,12 @@ public record Mesh(List<Vec3> vertices, List<Edge> edges) {
         var es = List.of(Edge.of(0, 1),
                          Edge.of(1, 2), Edge.of(1, 3));
         return Mesh.of(vs, es);
+    }
+
+    public static Mesh test() {
+        var vs = List.of(Vec3.of(0, 0, 0), Vec3.of(0, 1, 0), Vec3.of(1, 0, 0));
+        var es = List.of(Edge.of(0, 1), Edge.of(1, 2), Edge.of(2, 0));
+        var fs = List.of(Face.of(0, 1, 2));
+        return Mesh.of(vs, es, fs);
     }
 }
