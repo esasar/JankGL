@@ -1,20 +1,27 @@
 package com.github.esasar.render;
 
-import com.github.esasar.math.Vec2;
-import com.github.esasar.math.Vec3;
+import com.github.esasar.math.Vec2d;
+import com.github.esasar.math.Vec3d;
 import com.github.esasar.scene.Instance;
 import com.github.esasar.scene.Scene;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class Renderer {
     /** Threshold for clip lines drawn by {@link #line}. */
     private static final double NEAR = 0.05;
 
+    /** Light every face receives regardless of its orientation towards the light. */
+    private static final double AMBIENT = 0.2;
+
     private final FrameBuffer fb;
     private final double aspect;
     private final double focal;
+
+    /** Depth buffer. */
+    private final double[] depth;
 
     public FrameBuffer getFb() { return fb; }
     public double getAspect() { return aspect; }
@@ -24,26 +31,33 @@ public final class Renderer {
         this.fb = fb;
         this.aspect = (double) fb.getWidth() / fb.getHeight();
         this.focal = 1d / Math.tan(fovRad / 2d);
+        this.depth = new double[fb.getWidth() * fb.getHeight()];
     }
 
-    /** Render all instances in the scene from the pov of the camera. */
-    public void render(Scene scene, Camera camera) {
+    /** Render all instances in the scene from the pov of the camera, lit by light. */
+    public void render(Scene scene, Camera camera, DirectionalLight light) {
         getFb().clear(Color.BLACK.getValue());
-        scene.instances().forEach(i -> draw(i, camera));
+        Arrays.fill(depth, 0);
+        var lightDir = camera.toViewDir(light.direction().normalize());
+        scene.instances().forEach(i -> draw(i, camera, lightDir, light.intensity()));
     }
 
-    /** Draw instance from the pov of camera. */
-    private void draw(Instance instance, Camera camera) {
+    /** Draw instance from the pov of camera, lit by a light coming from lightDir (in view space). */
+    private void draw(Instance instance, Camera camera, Vec3d lightDir, double lightIntensity) {
         // convert vertices to view coordinates
         var local = instance.mesh().vertices();
-        var view = new Vec3[local.size()];
+        var view = new Vec3d[local.size()];
         for (var i = 0; i < view.length; i++) {
             view[i] = camera.toView(instance.toWorld(local.get(i)));
         }
 
         // fill faces
         for (var f : instance.mesh().faces()) {
-            fillFace(view[f.a()], view[f.b()], view[f.c()], instance.color());
+            var a = view[f.a()];
+            var b = view[f.b()];
+            var c = view[f.c()];
+            var diffuse = Math.max(0, faceNormal(a, b, c).dot(lightDir)) * lightIntensity;
+            fillFace(a, b, c, shade(instance.color(), AMBIENT + diffuse));
         }
 
         // draw lines between edges
@@ -59,43 +73,31 @@ public final class Renderer {
     }
 
     /** Clip a triangle against the near plane and rasterize the resulting polygon. */
-    private void fillFace(Vec3 a, Vec3 b, Vec3 c, int color) {
-        var poly = clipNear(List.of(a, b, c));
+    private void fillFace(Vec3d a, Vec3d b, Vec3d c, int color) {
+        var poly = Clip.clipNear(List.of(a, b, c), NEAR);
         if (poly.size() < 3) return;
 
-        var p0 = project(poly.getFirst());
+        var v0 = poly.getFirst();
+        var p0 = project(v0);
         for (var i = 1; i < poly.size() - 1; i++) {
-            var p1 = project(poly.get(i));
-            var p2 = project(poly.get(i + 1));
-            triangle(sx(p0), sy(p0), sx(p1), sy(p1), sx(p2), sy(p2), color);
+            var v1 = poly.get(i);
+            var v2 = poly.get(i + 1);
+            var p1 = project(v1);
+            var p2 = project(v2);
+            triangle(sx(p0), sy(p0), 1 / v0.z(), sx(p1), sy(p1), 1 / v1.z(), sx(p2), sy(p2), 1 / v2.z(), color);
         }
-    }
-
-    /** <a href="https://en.wikipedia.org/wiki/Sutherland%E2%80%93Hodgman_algorithm">Sutherland-Hodgman</a>. */
-    private List<Vec3> clipNear(List<Vec3> poly) {
-        var out = new ArrayList<Vec3>();
-        for (var i = 0; i < poly.size(); i++) {
-            var cur = poly.get(i);
-            var prev = poly.get((i - 1 + poly.size()) % poly.size());
-            var curIn = cur.z() >= NEAR;
-            var prevIn = prev.z() >= NEAR;
-
-            if (curIn != prevIn) {
-                var t = (NEAR - prev.z()) / (cur.z() - prev.z());
-                out.add(prev.plus(cur.minus(prev).scale(t)));
-            }
-            if (curIn) out.add(cur);
-        }
-        return out;
     }
 
     /** Fills a screen-space triangle using edge functions. */
-    private void triangle(int x0, int y0, int x1, int y1, int x2, int y2, int color) {
+    private void triangle(int x0, int y0, double z0, int x1, int y1, double z1, int x2, int y2, double z2, int color) {
         // find the smallest rectangle that fits the triangle
         var minX = Math.max(0, Math.min(x0, Math.min(x1, x2)));
         var maxX = Math.min(getFb().getWidth() - 1, Math.max(x0, Math.max(x1, x2)));
         var minY = Math.max(0, Math.min(y0, Math.min(y1, y2)));
         var maxY = Math.min(getFb().getHeight() - 1, Math.max(y0, Math.max(y1, y2)));
+
+        var area = edge(x0, y0, x1, y1, x2, y2);
+        if (area == 0) return;
 
         // walk through the rectangle
         for (var y = minY; y <= maxY; y++) {
@@ -107,7 +109,12 @@ public final class Renderer {
 
                 // when cross-products signs match, the pixel is inside the triangle
                 if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
-                    getFb().set(x, y, color);
+                    var z = (w0 * z0 + w1 * z1 + w2 * z2) / area;
+                    var idx = y * getFb().getWidth() + x;
+                    if (z > depth[idx]) {
+                        depth[idx] = z;
+                        getFb().set(x, y, color);
+                    }
                 }
             }
         }
@@ -118,20 +125,38 @@ public final class Renderer {
         return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     }
 
+    /** 3D cross product. */
+    private Vec3d faceNormal(Vec3d a, Vec3d b, Vec3d c) {
+        return b.minus(a).cross(c.minus(a)).normalize();
+    }
+
     /** Projects a world point to view coordinates. */
-    private Vec2 project(Vec3 p) {
-        return Vec2.of(getFocal() * p.x() / (p.z() * getAspect()),
-                       getFocal() * p.y() / p.z());
+    private Vec2d project(Vec3d p) {
+        return Vec2d.of(getFocal() * p.x() / (p.z() * getAspect()),
+                        getFocal() * p.y() / p.z());
     }
 
     /** Maps a projected point's x in [-1, 1] to a pixel column. */
-    private int sx(Vec2 p) {
+    private int sx(Vec2d p) {
         return (int) (getFb().getWidth() * (p.x() + 1) / 2);
     }
 
     /** Maps a projected point's y in [-1, 1] to a pixel row. */
-    public int sy(Vec2 p) {
+    public int sy(Vec2d p) {
         return (int) (getFb().getHeight() * (1 - p.y()) / 2);
+    }
+
+    /** Mask shenanigans TODO: make this less obscure */
+    private int shade(int rgb, double f) {
+        var r = clamp((int) (((rgb >> 16) & 0xFF) * f));
+        var g = clamp((int) (((rgb >> 8) & 0xFF) * f));
+        var b = clamp((int) (((rgb & 0xFF) * f)));
+        return (r << 16) | (g << 8) | b;
+    }
+
+    /** Clamp to [0, 255] */
+    private int clamp(int v) {
+        return v < 0 ? 0 : Math.min(v, 255);
     }
 
     /** <a href="https://www.cs.helsinki.fi/group/goa/mallinnus/lines/bresenh.html">Bresenham</a> */
