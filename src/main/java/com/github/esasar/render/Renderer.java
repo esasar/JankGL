@@ -5,7 +5,6 @@ import com.github.esasar.math.Vec3d;
 import com.github.esasar.scene.Instance;
 import com.github.esasar.scene.Scene;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -35,15 +34,15 @@ public final class Renderer {
     }
 
     /** Render all instances in the scene from the pov of the camera, lit by light. */
-    public void render(Scene scene, Camera camera, DirectionalLight light) {
+    public void render(Scene scene, Camera camera, DirectionalLight light, PointLight pointlight) {
         getFb().clear(Color.BLACK.getValue());
         Arrays.fill(depth, 0);
         var lightDir = camera.toViewDir(light.direction().normalize());
-        scene.instances().forEach(i -> draw(i, camera, lightDir, light.intensity()));
+        scene.instances().forEach(i -> draw(i, camera, lightDir, light.intensity(), pointlight));
     }
 
     /** Draw instance from the pov of camera, lit by a light coming from lightDir (in view space). */
-    private void draw(Instance instance, Camera camera, Vec3d lightDir, double lightIntensity) {
+    private void draw(Instance instance, Camera camera, Vec3d lightDir, double lightIntensity, PointLight pointlight) {
         // convert vertices to view coordinates
         var local = instance.mesh().vertices();
         var view = new Vec3d[local.size()];
@@ -51,12 +50,20 @@ public final class Renderer {
             view[i] = camera.toView(instance.toWorld(local.get(i)));
         }
 
+        var spotlightPos = camera.toView(pointlight.position());
+
         // fill faces
         for (var f : instance.mesh().faces()) {
             var a = view[f.a()];
             var b = view[f.b()];
             var c = view[f.c()];
             var diffuse = Math.max(0, faceNormal(a, b, c).dot(lightDir)) * lightIntensity;
+            var center = a.plus(b).plus(c).scale(1.0 / 3.0);
+            var toLight = spotlightPos.minus(center).normalize();
+            var distance = spotlightPos.minus(center).len();
+            var attenuation = 1d / (1d + distance * distance);
+            var normal = faceNormal(a, b, c);
+            diffuse += Math.max(0, normal.dot(toLight)) * pointlight.intensity() * attenuation;
             fillFace(a, b, c, shade(instance.color(), AMBIENT + diffuse));
         }
 

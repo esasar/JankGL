@@ -18,6 +18,8 @@ public record Vec3d(double x, double y, double z) {
     public Vec3d plus(Vec3d p) { return Vec3d.of(x() + p.x(), y() + p.y(), z() + p.z()); }
     public Vec3d plus(Vec3d p, double scale) { return Vec3d.of(x() + scale * p.x(), y() + scale * p.y(), z() + scale * p.z()); }
 
+    public double len() { return Math.sqrt(x() * x() + y() * y() * z() * z()); }
+
     public Vec3d cross(Vec3d v) {
         return Vec3d.of(y() * v.z() - z() * v.y(),
                         z() * v.x() - x() * v.z(),
